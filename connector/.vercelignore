@@ -1,0 +1,7 @@
+# The Vercel CLI uploads the working copy and doesn't read .gitignore, so keep local
+# secrets out of deployments made with `vercel deploy`.
+.env*
+.venv
+.vercel
+.pytest_cache
+__pycache__/

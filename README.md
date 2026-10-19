@@ -121,6 +121,13 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+## Use with Claude (MCP connector)
+
+[`connector/`](connector/) is a remote [MCP](https://modelcontextprotocol.io) server built on this
+library. Deploy it to Vercel and add it to Claude as a custom connector to read and log sleep,
+feeds, diapers, pumping, growth, temperature, medicine, and activities (including the live
+timers) from Claude on the web, desktop, or phone. See [connector/README.md](connector/README.md).
+
 ## Real-time Listeners
 
 Set up real-time listeners for instant updates:
@@ -184,6 +191,7 @@ async def main() -> None:
   - `units`: "ml" or "oz"
 
 ### Pumping Tracking
+- `await get_pump(child_uid)` - Get the typed pump document, current timer state, and last pump summary
 - `await start_pump(child_uid)` - Start a pumping timer
 - `await pause_pump(child_uid)` / `await resume_pump(child_uid)` - Pause or resume pumping
 - `await complete_pump(child_uid, total_amount=..., units=..., notes=...)` - Save the active timer with total or left/right amounts
@@ -192,6 +200,7 @@ async def main() -> None:
 - `await list_pump_intervals(child_uid, start_time, end_time)` - List pump history for a range using `datetime` objects
 
 ### Activity Tracking
+- `await get_activities(child_uid)` - Get the typed activities document with per-activity timer state
 - `await start_activity(child_uid, mode)` - Start an activity timer
 - `await pause_activity(child_uid, mode)` / `await resume_activity(child_uid, mode)` - Pause or resume an activity timer
 - `await switch_activity(child_uid, mode)` - Associate the active timer with another activity type
@@ -207,6 +216,7 @@ async def main() -> None:
 - `await log_solids(child_uid, start_time=..., foods=..., notes="", reaction=None, food_note_image=None)` - Log solids meal with an explicit event timestamp
 
 ### Diaper Tracking
+- `await get_diaper(child_uid)` - Get the typed diaper document with last diaper/potty summaries
 - `await log_diaper(child_uid, start_time=..., mode=..., pee_amount=..., poo_amount=..., color=..., consistency=...)` - Log diaper change with an explicit event timestamp
 - `await log_potty(child_uid, start_time=..., mode=..., how_it_happened=..., pee_amount=..., poo_amount=..., color=..., consistency=...)` - Log potty event with an explicit event timestamp
   - `mode`: "pee", "poo", "both", or "dry"

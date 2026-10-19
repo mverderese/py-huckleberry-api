@@ -476,6 +476,48 @@ class HuckleberryAPI:
             return None
         return FirebaseFeedDocumentData.model_validate(feed_data)
 
+    async def get_diaper(self, child_uid: str) -> FirebaseDiaperDocumentData | None:
+        """Get the typed diaper/{child_uid} document, including last diaper/potty summaries."""
+        _LOGGER.debug("Fetching diaper document for %s", child_uid)
+
+        db = await self._get_firestore_client()
+        diaper_doc = await db.collection("diaper").document(child_uid).get(timeout=10.0)
+        if not diaper_doc.exists:
+            return None
+
+        diaper_data = diaper_doc.to_dict()
+        if not diaper_data:
+            return None
+        return FirebaseDiaperDocumentData.model_validate(diaper_data)
+
+    async def get_pump(self, child_uid: str) -> FirebasePumpDocumentData | None:
+        """Get the typed pump/{child_uid} document, including live pump timer state."""
+        _LOGGER.debug("Fetching pump document for %s", child_uid)
+
+        db = await self._get_firestore_client()
+        pump_doc = await db.collection("pump").document(child_uid).get(timeout=10.0)
+        if not pump_doc.exists:
+            return None
+
+        pump_data = pump_doc.to_dict()
+        if not pump_data:
+            return None
+        return FirebasePumpDocumentData.model_validate(pump_data)
+
+    async def get_activities(self, child_uid: str) -> FirebaseActivityDocumentData | None:
+        """Get the typed activities/{child_uid} document, including live activity timer state."""
+        _LOGGER.debug("Fetching activities document for %s", child_uid)
+
+        db = await self._get_firestore_client()
+        activity_doc = await db.collection("activities").document(child_uid).get(timeout=10.0)
+        if not activity_doc.exists:
+            return None
+
+        activity_data = activity_doc.to_dict()
+        if not activity_data:
+            return None
+        return FirebaseActivityDocumentData.model_validate(activity_data)
+
     async def start_sleep(self, child_uid: str) -> None:
         """Start sleep tracking for a child."""
         _LOGGER.info("Starting sleep tracking for child %s", child_uid)

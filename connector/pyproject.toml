@@ -1,0 +1,29 @@
+[project]
+name = "huckleberry-mcp"
+version = "0.1.0"
+description = "Remote MCP server (OAuth) that lets Claude read and log Huckleberry baby tracking data"
+requires-python = ">=3.14"
+dependencies = [
+    "huckleberry-api",
+    "mcp==2.3.0",
+    "cryptography>=44",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+# The client library from this repository, so the connector always matches it
+huckleberry-api = { path = "..", editable = false }
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.17.1",
+    "ty>=0.0.1a8",
+    "uvicorn>=0.30",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
