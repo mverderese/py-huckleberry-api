@@ -15,10 +15,11 @@ Tools:
 - **Log past entries:** `log_sleep`, `log_nursing`, `log_bottle`, `log_solids`, `log_diaper`,
   `log_potty`, `log_pump`, `log_activity`, `log_growth`, `log_temperature`, `log_medicine`
 - **Set up:** `create_medicine`, `create_custom_food`
+- **Delete:** `delete_entry` (by the `entry_id` that `get_entries` returns)
 
 Claude asks before using tools that change something, unless you allow them in the connector's
-settings. There are no delete tools, because the library can't delete entries yet: remove
-mistakes in the Huckleberry app.
+settings. `delete_entry` removes one logged entry permanently; it doesn't roll back the app's
+"last ..." summary (like "last diaper") if the deleted entry was the newest.
 
 ## How sign-in works
 

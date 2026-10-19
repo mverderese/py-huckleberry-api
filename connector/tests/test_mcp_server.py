@@ -64,11 +64,17 @@ class FakeAPI:
         self.fake.calls.append(("start_sleep", cid))
         self.fake.sleep = {"timer": {"active": True, "paused": False, "timerStartTime": 1_760_000_000_000, "uuid": "u"}}
 
-    async def list_diaper_intervals(self, cid, start, end):
+    async def list_entries_with_ids(self, cid, tracker, start, end):
+        assert tracker == "diaper"
         return [
-            FirebaseDiaperData(mode="pee", start=1_760_000_000, offset=240),
-            FirebaseDiaperData(mode="both", start=1_760_003_600, offset=240),
+            ("solo", FirebaseDiaperData(mode="pee", start=1_760_000_000, offset=240)),
+            ("batch/k1", FirebaseDiaperData(mode="both", start=1_760_003_600, offset=240)),
         ]
+
+    async def delete_entry(self, cid, tracker, entry_id):
+        if entry_id == "missing":
+            raise ValueError(f"No {tracker} entry with id {entry_id}")
+        self.fake.calls.append(("delete_entry", cid, tracker, entry_id))
 
     async def log_diaper(self, cid, **kwargs):
         self.fake.calls.append(("log_diaper", cid, kwargs))
@@ -360,6 +366,23 @@ def test_tools_end_to_end(client, fake):
     assert entries["count"] == 2
     assert [e["mode"] for e in entries["entries"]] == ["both", "pee"]
     assert entries["entries"][0]["start_local"].endswith("CDT")
+    assert [e["entry_id"] for e in entries["entries"]] == ["batch/k1", "solo"]
+
+
+def test_delete_entry(client, fake):
+    _, tokens = get_tokens(client)
+    token = tokens["access_token"]
+
+    tools = {t["name"]: t for t in mcp_call(client, token, "tools/list")["result"]["tools"]}
+    assert tools["delete_entry"]["annotations"]["destructiveHint"] is True
+
+    deleted = result_of(call_tool(client, token, "delete_entry", {"tracker": "activity", "entry_id": "batch/k1"}))
+    assert deleted == {"deleted": "batch/k1", "tracker": "activity", "child": "Chloe"}
+    # The connector's tracker names map to the library's collection names
+    assert fake.calls[-1] == ("delete_entry", "c1", "activities", "batch/k1")
+
+    missing = call_tool(client, token, "delete_entry", {"tracker": "diaper", "entry_id": "missing"})
+    assert missing["isError"] and "No diaper entry" in missing["content"][0]["text"]
 
 
 def test_log_sleep_and_medicine(client, fake):

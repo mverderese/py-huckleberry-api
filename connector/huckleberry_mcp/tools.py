@@ -19,6 +19,7 @@ from huckleberry_api.firebase_types import (
     ActivityMode,
     BottleType,
     DiaperMode,
+    EntryTracker,
     FirebaseSleepDetails,
     FirebaseSleepLocations,
     MedicationUnits,
@@ -43,8 +44,9 @@ state the outcome plainly ("Sleep timer started for Chloe at 7:42 PM").
 - Before a write, if you inferred anything the user didn't say (which child, the time, pee vs.
   poo, amounts or units), confirm it with them first.
 - Never repeat a write that failed or timed out without first checking with get_current_status
-  or get_entries, so nothing is logged twice. There is no delete tool: entries logged by mistake
-  must be removed in the Huckleberry app.
+  or get_entries, so nothing is logged twice.
+- To delete an entry, find it with get_entries, confirm with the user which entry (tracker, time,
+  and values) before calling delete_entry with its entry_id. Deleting can't be undone.
 - To log medicine, use a medicine name from list_medicines. To log solids, use foods from
   find_solid_foods, passing each food's id, source, and name exactly as returned.
 - Times: prefer ISO 8601 with the user's UTC offset. "now", "15m", "2h", and "HH:MM" are also
@@ -61,6 +63,15 @@ LOG = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_h
 DISCARD = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=True)
 
 Tracker = Literal["sleep", "feeding", "diaper", "health", "pump", "activity"]
+# The library's names for the same trackers (their Firestore root collections)
+LIBRARY_TRACKER: Dict[str, EntryTracker] = {
+    "sleep": "sleep",
+    "feeding": "feed",
+    "diaper": "diaper",
+    "health": "health",
+    "pump": "pump",
+    "activity": "activities",
+}
 TimerTracker = Literal["sleep", "nursing", "pump", "activity"]
 Amount = Literal["little", "medium", "big"]
 # The flags of FirebaseSleepLocations, as the app stores them
@@ -284,7 +295,7 @@ async def get_entries(
     timezone_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Logged entries from one tracker in the last `hours` hours, newest first, as Huckleberry stores
-    them, with start_local/end_local added. start is epoch seconds, durations are seconds, and
+    them, with entry_id (for delete_entry) and start_local/end_local added. start is epoch seconds, durations are seconds, and
     offset is the UTC offset in minutes (negated). feeding covers nursing (mode breast, per-side
     durations), bottle, and solids; health covers growth, medication, and temperature."""
     if not 1 <= hours <= 24 * 92:
@@ -294,18 +305,10 @@ async def get_entries(
     start = end - timedelta(hours=hours)
     async with _api(tz) as api:
         kid = await _child(api, child)
-        fetch = {
-            "sleep": api.list_sleep_intervals,
-            "feeding": api.list_feed_intervals,
-            "diaper": api.list_diaper_intervals,
-            "health": api.list_health_entries,
-            "pump": api.list_pump_intervals,
-            "activity": api.list_activity_intervals,
-        }[tracker]
-        entries = await _call(fetch(kid["id"], start, end))
-    entries.sort(key=lambda e: float(e.start), reverse=True)
-    shown = entries[: max(1, limit)]
-    return {"child": kid["name"], "count": len(entries), "entries": _localize(shown, tz)}
+        entries = await _call(api.list_entries_with_ids(kid["id"], LIBRARY_TRACKER[tracker], start, end))
+    entries.sort(key=lambda pair: float(pair[1].start), reverse=True)
+    shown = [{"entry_id": entry_id, **_localize(entry, tz)} for entry_id, entry in entries[: max(1, limit)]]
+    return {"child": kid["name"], "count": len(entries), "entries": shown}
 
 
 @mcp.tool(annotations=READ)
@@ -787,3 +790,26 @@ async def create_custom_food(name: str, child: Optional[str] = None) -> Dict[str
         kid = await _child(api, child)
         created = await _call(api.create_solids_custom_food(kid["id"], name))
     return {"created": created.name, "id": created.id, "source": created.source, "child": kid["name"]}
+
+
+# --- Deleting ------------------------------------------------------------------------------
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=True
+    )
+)
+async def delete_entry(
+    tracker: Tracker,
+    entry_id: str,
+    child: Optional[str] = None,
+    timezone_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Permanently delete one logged entry, by the entry_id get_entries returned for it. The app's
+    "last ..." summary (e.g. last diaper) isn't rolled back if this was the newest entry."""
+    tz = _tz(timezone_name)
+    async with _api(tz) as api:
+        kid = await _child(api, child)
+        await _call(api.delete_entry(kid["id"], LIBRARY_TRACKER[tracker], entry_id))
+    return {"deleted": entry_id, "tracker": tracker, "child": kid["name"]}

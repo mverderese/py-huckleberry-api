@@ -167,6 +167,10 @@ async def main() -> None:
 - `await get_user()` - Get full `users/{uid}` document
 - `await get_child(child_uid)` - Get a single child profile by id
 
+### History Entries (any tracker)
+- `await list_entries_with_ids(child_uid, tracker, start_time, end_time)` - List history for `sleep`, `feed`, `diaper`, `health`, `pump`, or `activities`, each entry paired with an id
+- `await delete_entry(child_uid, tracker, entry_id)` - Delete one history entry by that id (tracker `prefs.last*` summaries are left unchanged)
+
 ### Sleep Tracking
 - `await get_sleep(child_uid)` - Get the typed sleep document and current timer state
 - `await start_sleep(child_uid)` - Start sleep session

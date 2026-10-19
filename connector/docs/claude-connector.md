@@ -41,7 +41,8 @@ Turn on the Huckleberry connector in a chat and ask things like:
 - "Her temperature is 100.4 F."
 
 Claude asks before it changes anything. If a child's name is needed (more than one child on the
-account), Claude asks. Entries logged by mistake have to be deleted in the Huckleberry app.
+account), Claude asks. Claude can also delete an entry logged by mistake ("delete that last
+diaper"); it confirms which one first, and deleting can't be undone.
 
 ## Disconnecting
 

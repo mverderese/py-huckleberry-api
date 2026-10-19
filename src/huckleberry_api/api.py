@@ -21,6 +21,7 @@ from google.cloud import firestore
 from google.cloud.firestore import DELETE_FIELD
 from google.cloud.firestore_v1 import AsyncClient
 from google.cloud.firestore_v1.async_document import AsyncDocumentReference
+from google.cloud.firestore_v1.field_path import FieldPath
 from pydantic import TypeAdapter, ValidationError
 
 from .const import AUTH_URL, FIREBASE_API_KEY, REFRESH_URL
@@ -28,6 +29,7 @@ from .firebase_types import (
     ActivityMode,
     BottleType,
     DiaperMode,
+    EntryTracker,
     FeedSide,
     FirebaseActivityDocumentData,
     FirebaseActivityIntervalData,
@@ -90,6 +92,7 @@ from .firebase_types import (
     SolidsFoodEntry,
     SolidsReaction,
     TemperatureUnits,
+    TrackerEntryData,
     VolumeUnits,
     to_firebase_dict,
 )
@@ -117,6 +120,23 @@ _HEALTH_ENTRY_ADAPTER = TypeAdapter(HealthDataEntry)
 _MEDICATION_UNITS_ADAPTER = TypeAdapter(MedicationUnits)
 _VOLUME_UNITS_ADAPTER = TypeAdapter(VolumeUnits)
 _ACTIVITY_MODE_ADAPTER = TypeAdapter(ActivityMode)
+_EntryMultiContainer = (
+    FirebaseSleepMultiContainer
+    | FirebaseFeedMultiContainer
+    | FirebaseDiaperMultiContainer
+    | FirebaseHealthMultiContainer
+    | FirebasePumpMultiContainer
+    | FirebaseActivityMultiContainer
+)
+# Per tracker: how to validate a standalone history row, and its multi-entry container model
+_ENTRY_PARSERS: dict[str, tuple[Callable[[dict], TrackerEntryData], type[_EntryMultiContainer]]] = {
+    "sleep": (FirebaseSleepIntervalData.model_validate, FirebaseSleepMultiContainer),
+    "feed": (_FEED_INTERVAL_ADAPTER.validate_python, FirebaseFeedMultiContainer),
+    "diaper": (FirebaseDiaperData.model_validate, FirebaseDiaperMultiContainer),
+    "health": (_HEALTH_ENTRY_ADAPTER.validate_python, FirebaseHealthMultiContainer),
+    "pump": (FirebasePumpIntervalData.model_validate, FirebasePumpMultiContainer),
+    "activities": (FirebaseActivityIntervalData.model_validate, FirebaseActivityMultiContainer),
+}
 _ACTIVITY_LAST_FIELD_BY_MODE: dict[ActivityMode, str] = {
     "bath": "lastBath",
     "brushTeeth": "lastBrushTeeth",
@@ -3152,3 +3172,86 @@ class HuckleberryAPI:
             _LOGGER.error("Error fetching activity intervals: %s", err)
 
         return events
+
+    @staticmethod
+    def _entry_location(tracker: EntryTracker) -> tuple[str, str]:
+        """Root collection and history subcollection for a tracker."""
+        if tracker not in _ENTRY_PARSERS:
+            raise ValueError(f"Unknown tracker: {tracker}")
+        return tracker, "data" if tracker == "health" else "intervals"
+
+    async def list_entries_with_ids(
+        self,
+        child_uid: str,
+        tracker: EntryTracker,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[tuple[str, TrackerEntryData]]:
+        """Fetch history entries for a date range, each paired with an id for ``delete_entry``.
+
+        The id is the document id for a standalone row, or ``"{document_id}/{key}"`` for a row
+        inside a ``multi`` container document. Unlike the ``list_*`` methods, Firestore and
+        validation errors are raised rather than logged.
+        """
+        parse_single, multi_model = _ENTRY_PARSERS[tracker]
+        collection, subcollection = self._entry_location(tracker)
+        start_timestamp, end_timestamp = start_time.timestamp(), end_time.timestamp()
+        client = await self._get_firestore_client()
+        history_ref = client.collection(collection).document(child_uid).collection(subcollection)
+
+        entries: list[tuple[str, TrackerEntryData]] = []
+        regular_docs = (
+            history_ref.where(filter=firestore.FieldFilter("start", ">=", start_timestamp))
+            .where(filter=firestore.FieldFilter("start", "<", end_timestamp))
+            .order_by("start")
+            .stream()
+        )
+        async for doc in regular_docs:
+            data = doc.to_dict()
+            if not data or data.get("multi"):
+                continue
+            entries.append((doc.id, parse_single(data)))
+
+        multi_docs = history_ref.where(filter=firestore.FieldFilter("multi", "==", True)).stream()
+        async for doc in multi_docs:
+            data = doc.to_dict()
+            if not data:
+                continue
+            container = multi_model.model_validate(data)
+            for key, entry in container.data.items():
+                if start_timestamp <= entry.start < end_timestamp:
+                    entries.append((f"{doc.id}/{key}", entry))
+
+        return entries
+
+    async def delete_entry(self, child_uid: str, tracker: EntryTracker, entry_id: str) -> None:
+        """Delete one history entry by an id from ``list_entries_with_ids``.
+
+        A standalone row's document is deleted; a row inside a ``multi`` container is removed
+        from the container's ``data`` map. Tracker summaries such as ``prefs.lastDiaper`` are
+        left unchanged.
+        """
+        collection, subcollection = self._entry_location(tracker)
+        client = await self._get_firestore_client()
+        history_ref = client.collection(collection).document(child_uid).collection(subcollection)
+
+        doc_id, _, key = entry_id.partition("/")
+        if not doc_id:
+            raise ValueError("entry_id must not be empty")
+        doc_ref = history_ref.document(doc_id)
+        snapshot = await doc_ref.get()
+        data = snapshot.to_dict() if snapshot.exists else None
+        if not data:
+            raise ValueError(f"No {tracker} entry with id {entry_id}")
+
+        if key:
+            entries = data.get("data")
+            if not data.get("multi") or not isinstance(entries, dict) or key not in entries:
+                raise ValueError(f"No {tracker} entry with id {entry_id}")
+            await doc_ref.update({FieldPath("data", key).to_api_repr(): DELETE_FIELD})
+        else:
+            if data.get("multi"):
+                raise ValueError(f"{entry_id} is a container of several entries; pass one entry's id")
+            await doc_ref.delete()
+
+        _LOGGER.info("Deleted %s entry %s for child %s", tracker, entry_id, child_uid)
