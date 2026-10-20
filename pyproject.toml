@@ -67,3 +67,7 @@ line-ending = "lf"
 [build-system]
 requires = ["uv_build>=0.9.13,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.ty.src]
+# connector/ is its own uv project with its own dependencies; it's checked from there
+exclude = ["connector"]

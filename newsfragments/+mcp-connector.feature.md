@@ -1,0 +1,1 @@
+Add `get_diaper`, `get_pump`, and `get_activities` typed document reads, `list_entries_with_ids` and `delete_entry` for history entries, and a remote MCP connector (`connector/`) so Claude can read and log Huckleberry data.

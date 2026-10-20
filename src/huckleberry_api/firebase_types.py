@@ -1043,6 +1043,30 @@ class FirebaseActivityMultiContainer(StrictModel):
     data: dict[str, FirebaseActivityIntervalData]
 
 
+# ---------------------------------------------------------------------------
+# history entries across trackers
+# ---------------------------------------------------------------------------
+
+# Root collections whose per-child history can be listed with entry ids and deleted.
+# History rows live in `{collection}/{child_uid}/intervals`, except health, which uses
+# `health/{child_uid}/data`. A row is either its own document, or one value of the `data`
+# map in a `multi: true` container document (see the *MultiContainer models above).
+# Live verification on 2026-10-19: deleting standalone rows (as written by this library) in
+# sleep, feed, pump, and activities removed them from history, and each tracker's
+# prefs.last* summary was left unchanged by the delete. Removing a key from a multi
+# container has not been verified live yet.
+EntryTracker = Literal["sleep", "feed", "diaper", "health", "pump", "activities"]
+
+TrackerEntryData: TypeAlias = (
+    FirebaseSleepIntervalData
+    | FirebaseFeedIntervalData
+    | FirebaseDiaperData
+    | HealthDataEntry
+    | FirebasePumpIntervalData
+    | FirebaseActivityIntervalData
+)
+
+
 def to_firebase_dict(model: StrictModel) -> dict[str, object]:
     """Serialize strict model to Firestore payload."""
 
